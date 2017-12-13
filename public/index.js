@@ -173,48 +173,57 @@ $(function () {
     }
   }
 
+  function listenSocketEvents() {
+    socket.on('candidate', function (data) {
+      const pc = getPeerConnectionOrCreate(data.from);
+      const iceCandidate = new RTCIceCandidate(data.candidate);
+      pc.addIceCandidate(iceCandidate);
+    });
+
+    socket.on('sdp', function (data) {
+      const pc = getPeerConnectionOrCreate(data.from);
+      const remoteDescr = new RTCSessionDescription(data.sdp);
+      setRemoteDescriptionAndCreateAnswer(pc, remoteDescr);
+    });
+  }
+
+  function listenJoinRoom() {
+    const $btnJoinRoom = $('#join-room');
+
+    $btnJoinRoom.click(function () {
+      const room = $('#room').val();
+
+      if (!room) {
+        return false;
+      }
+
+      socket.emit('join', room, function (errJoin, remoteSocketIds) {
+        if (errJoin) {
+          console.error('Error joining room:', errJoin);
+          return;
+        }
+
+        console.log('Joined room:', room);
+
+        $(elInputRoomRow).addClass('hide');
+        $(elCurrentRoomRow).find('#current-room').html(room);
+        $(elCurrentRoomRow).removeClass('hide');
+
+        const remoteSocketId = _.head(remoteSocketIds);
+
+        if (remoteSocketId) {
+          createPeerConnection(remoteSocketId, true);
+        }
+      });
+    });
+
+    $btnJoinRoom.removeClass('disabled');
+  }
+
   getLocalStream()
       .then(setLocalStream)
       .then(waitForICEConfig)
       .then(waitForSocketConn)
-      .then(function () {
-        socket.on('candidate', function (data) {
-          const pc = getPeerConnectionOrCreate(data.from);
-          const iceCandidate = new RTCIceCandidate(data.candidate);
-          pc.addIceCandidate(iceCandidate);
-        });
-
-        socket.on('sdp', function (data) {
-          const pc = getPeerConnectionOrCreate(data.from);
-          const remoteDescr = new RTCSessionDescription(data.sdp);
-          setRemoteDescriptionAndCreateAnswer(pc, remoteDescr);
-        });
-
-        $('#join-room').click(function () {
-          const room = $('#room').val();
-
-          if (!room) {
-            return false;
-          }
-
-          socket.emit('join', room, function (errJoin, remoteSocketIds) {
-            if (errJoin) {
-              console.error('Error joining room:', errJoin);
-              return;
-            }
-
-            console.log('Joined room:', room);
-
-            $(elInputRoomRow).addClass('hide');
-            $(elCurrentRoomRow).find('#current-room').html(room);
-            $(elCurrentRoomRow).removeClass('hide');
-
-            const remoteSocketId = _.head(remoteSocketIds);
-
-            if (remoteSocketId) {
-              createPeerConnection(remoteSocketId, true);
-            }
-          });
-        });
-      });
+      .then(listenSocketEvents)
+      .then(listenJoinRoom);
 });
