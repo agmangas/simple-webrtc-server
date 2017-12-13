@@ -32,26 +32,30 @@ server.listen(process.env.PORT || defaultPort);
 app.use(express.static('public'));
 
 /**
- * Endpoint to retrieve ICE servers configuration.
+ * Sends a request to the Xirsys API to retrieve a set of ICE servers credentials.
+ * @return {Promise}
  */
-app.get('/iceservers', function (req, res, next) {
-  if (!process.env.XIRSYS_USER || !process.env.XIRSYS_PASSWD) {
-    return next(new Error('Undefined credentials'));
-  }
+function requestXirsysIceServers() {
+  return new Promise(function (resolve, reject) {
+    const user = process.env.XIRSYS_USER;
+    const passwd = process.env.XIRSYS_PASSWD;
 
-  const authBuf = new Buffer(process.env.XIRSYS_USER + ':' + process.env.XIRSYS_PASSWD);
-  const authStr = authBuf.toString('base64');
-
-  const reqOptions = {
-    host: 'global.xirsys.net',
-    path: '/_turn/simple-webrtc-server',
-    method: 'PUT',
-    headers: {
-      'Authorization': 'Basic ' + authStr
+    if (!user || !passwd) {
+      reject(new Error('Undefined credentials'));
+      return;
     }
-  };
 
-  const reqPromise = new Promise(function (resolve, reject) {
+    const authStr = new Buffer(user + ':' + passwd).toString('base64');
+
+    const reqOptions = {
+      host: 'global.xirsys.net',
+      path: '/_turn/simple-webrtc-server',
+      method: 'PUT',
+      headers: {
+        'Authorization': 'Basic ' + authStr
+      }
+    };
+
     const httpreq = https.request(reqOptions, function (httpres) {
       var rawRes = '';
 
@@ -65,18 +69,37 @@ app.get('/iceservers', function (req, res, next) {
 
       httpres.on('end', function () {
         const parsedRes = JSON.parse(rawRes);
-        resolve(parsedRes.v.iceServers);
+
+        if (parsedRes.s !== 'ok') {
+          reject(new Error(parsedRes.v));
+          return;
+        }
+
+        const iceServers = _.map(parsedRes.v.iceServers, function (iceServer) {
+          return _.mapKeys(iceServer, function (value, key) {
+            return key === 'url' ? 'urls' : key;
+          });
+        });
+
+        resolve(iceServers);
       });
     });
 
     httpreq.end();
   });
+}
 
-  reqPromise.then(function (iceServers) {
-    res.json(iceServers);
-  }).catch(function (err) {
-    next(err);
-  });
+/**
+ * Endpoint to retrieve ICE servers configuration.
+ */
+app.get('/iceservers', function (req, res, next) {
+  requestXirsysIceServers()
+      .then(function (iceServers) {
+        res.json(iceServers);
+      })
+      .catch(function (err) {
+        next(err);
+      });
 });
 
 /**

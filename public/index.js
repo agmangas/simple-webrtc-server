@@ -19,7 +19,7 @@ $(function () {
 
   const pcConfig = {
     iceServers: [{
-      url: 'stun:stun.l.google.com:19302'
+      urls: 'stun:stun.l.google.com:19302'
     }]
   };
 
@@ -28,10 +28,11 @@ $(function () {
         .done(function (iceServers) {
           console.log('Retrieved ICE servers:', iceServers);
           pcConfig.iceServers = iceServers;
-          resolve();
         })
         .fail(function () {
           console.log('Error getting ICE servers (using STUN-only default)');
+        })
+        .always(function () {
           resolve();
         });
   });
@@ -79,15 +80,23 @@ $(function () {
     });
   }
 
+  function setVideoElementStream(stream, videoElement) {
+    try {
+      videoElement.srcObject = stream;
+    } catch (error) {
+      console.log('Unsupported HTMLMediaElement.srcObject:', error);
+
+      if (window.URL) {
+        videoElement.src = window.URL.createObjectURL(stream);
+      } else {
+        videoElement.src = stream;
+      }
+    }
+  }
+
   function setLocalStream(stream) {
     localStream = stream;
-
-    if (window.URL) {
-      elSelfView.src = window.URL.createObjectURL(stream);
-    } else {
-      elSelfView.src = stream;
-    }
-
+    setVideoElementStream(stream, elSelfView);
     elSelfView.muted = true;
   }
 
@@ -147,7 +156,7 @@ $(function () {
 
     pc.onaddstream = function (event) {
       console.log('onaddstream', event);
-      elRemoteView.src = URL.createObjectURL(event.stream);
+      setVideoElementStream(event.stream, elRemoteView);
       $(elRemoteViewContainer).removeClass('hide');
     };
 
