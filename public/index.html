@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>Simple WebRTC</title>
+    <link href="https://fonts.googleapis.com/icon?family=Material+Icons" rel="stylesheet">
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0-alpha.2/css/materialize.min.css">
+    <link href="/index.css" rel="stylesheet">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+</head>
+<body>
+<div class="container">
+    <div class="row">
+        <div class="col s12 center-align">
+            <h3>Simple WebRTC Server</h3>
+        </div>
+    </div>
+    <div id="input-room-row" class="row">
+        <div class="col s12">
+            <div class="input-field">
+                <input id="room" type="text" class="validate">
+                <label for="room">Room</label>
+                <button class="btn waves-effect waves-light" name="action" id="join-room">
+                    Join Room
+                </button>
+            </div>
+        </div>
+    </div>
+    <div id="current-room-row" class="row hide">
+        <div class="col s12 center-align">
+            <h5>
+                Connected to room:
+                <span id="current-room" class="blue-text text-darken-2"></span>
+            </h5>
+        </div>
+    </div>
+    <div id="self-view-row" class="row">
+        <div class="col s8 offset-s2">
+            <video id="self-view" class="responsive-video width-100 z-depth-2" autoplay></video>
+        </div>
+    </div>
+    <div id="remote-view-row" class="row hide">
+        <div class="col s8 offset-s2">
+            <video id="remote-view" class="responsive-video width-100 z-depth-2" autoplay></video>
+        </div>
+    </div>
+</div>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jquery/3.2.1/jquery.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/materialize/1.0.0-alpha.2/js/materialize.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/lodash.js/4.17.4/lodash.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/es6-promise/4.1.1/es6-promise.auto.min.js"></script>
+<!--suppress HtmlUnknownTarget -->
+<script src="/socket.io/socket.io.js"></script>
+<script src="/index.js"></script>
+</body>
+</html>

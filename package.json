@@ -1,0 +1,22 @@
+{
+  "name": "simple-webrtc-server",
+  "version": "0.1.0",
+  "description": "Simple WebRTC signaling server and app",
+  "private": true,
+  "main": "app.js",
+  "scripts": {
+    "start": "node app.js",
+    "start-devel": "PORT=9292 DUMMY_HTTPS=1 npm start"
+  },
+  "keywords": [
+    "webrtc"
+  ],
+  "author": "Andres Garcia Mangas <andres.garcia@fundacionctic.org>",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.16.2",
+    "lodash": "^4.17.4",
+    "log": "^1.4.0",
+    "socket.io": "^2.0.4"
+  }
+}
