@@ -11,6 +11,9 @@
   "keywords": [
     "webrtc"
   ],
+  "engines": {
+    "node": "^8.9.3"
+  },
   "author": "Andres Garcia Mangas <andres.garcia@fundacionctic.org>",
   "license": "MIT",
   "dependencies": {
