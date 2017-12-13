@@ -27,7 +27,7 @@ $(function () {
 
   const elSelfView = document.getElementById('self-view');
   const elRemoteView = document.getElementById('remote-view');
-  const elRemoteViewRow = document.getElementById('remote-view-row');
+  const elRemoteViewContainer = document.getElementById('remote-view-container');
   const elInputRoomRow = document.getElementById('input-room-row');
   const elCurrentRoomRow = document.getElementById('current-room-row');
 
@@ -135,7 +135,7 @@ $(function () {
     pc.onaddstream = function (event) {
       console.log('onaddstream', event);
       elRemoteView.src = URL.createObjectURL(event.stream);
-      $(elRemoteViewRow).removeClass('hide');
+      $(elRemoteViewContainer).removeClass('hide');
     };
 
     pc.addStream(localStream);
