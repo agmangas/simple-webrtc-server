@@ -26,8 +26,8 @@ $(function () {
   const waitForICEConfig = new Promise(function (resolve) {
     $.getJSON('/iceservers')
         .done(function (iceServers) {
-          console.log('Retrieved ICE servers:', iceServers);
           pcConfig.iceServers = iceServers;
+          console.log('Retrieved ICE servers:', pcConfig.iceServers);
         })
         .fail(function () {
           console.log('Error getting ICE servers (using STUN-only default)');

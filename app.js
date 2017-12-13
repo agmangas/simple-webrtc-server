@@ -103,6 +103,20 @@ app.get('/iceservers', function (req, res, next) {
 });
 
 /**
+ * Express default error handler.
+ */
+app.use(function (err, req, res, next) {
+  log.warning(err);
+
+  if (res.headersSent) {
+    return next(err);
+  }
+
+  res.status(500);
+  res.json({ error: _.toString(err) });
+});
+
+/**
  * Returns all sockets connected to the given room.
  * @param room
  * @return {Array}
