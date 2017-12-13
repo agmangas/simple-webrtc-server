@@ -32,6 +32,54 @@ server.listen(process.env.PORT || defaultPort);
 app.use(express.static('public'));
 
 /**
+ * Endpoint to retrieve ICE servers configuration.
+ */
+app.get('/iceservers', function (req, res, next) {
+  if (!process.env.XIRSYS_USER || !process.env.XIRSYS_PASSWD) {
+    return next(new Error('Undefined credentials'));
+  }
+
+  const authBuf = new Buffer(process.env.XIRSYS_USER + ':' + process.env.XIRSYS_PASSWD);
+  const authStr = authBuf.toString('base64');
+
+  const reqOptions = {
+    host: 'global.xirsys.net',
+    path: '/_turn/simple-webrtc-server',
+    method: 'PUT',
+    headers: {
+      'Authorization': 'Basic ' + authStr
+    }
+  };
+
+  const reqPromise = new Promise(function (resolve, reject) {
+    const httpreq = https.request(reqOptions, function (httpres) {
+      var rawRes = '';
+
+      httpres.on('data', function (data) {
+        rawRes += data;
+      });
+
+      httpres.on('error', function (e) {
+        reject(e);
+      });
+
+      httpres.on('end', function () {
+        const parsedRes = JSON.parse(rawRes);
+        resolve(parsedRes.v.iceServers);
+      });
+    });
+
+    httpreq.end();
+  });
+
+  reqPromise.then(function (iceServers) {
+    res.json(iceServers);
+  }).catch(function (err) {
+    next(err);
+  });
+});
+
+/**
  * Returns all sockets connected to the given room.
  * @param room
  * @return {Array}

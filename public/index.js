@@ -23,6 +23,19 @@ $(function () {
     }]
   };
 
+  const waitForICEConfig = new Promise(function (resolve) {
+    $.getJSON('/iceservers')
+        .done(function (iceServers) {
+          console.log('Retrieved ICE servers:', iceServers);
+          pcConfig.iceServers = iceServers;
+          resolve();
+        })
+        .fail(function () {
+          console.log('Error getting ICE servers (using STUN-only default)');
+          resolve();
+        });
+  });
+
   const pcPeers = {};
 
   const elSelfView = document.getElementById('self-view');
@@ -33,7 +46,7 @@ $(function () {
 
   const socket = io();
 
-  const waitForSocketConn = new Promise(function (resolve) {
+  const waitForSocketConn = new Promise(function (resolve, reject) {
     socket.on('connect', function () {
       resolve();
     });
@@ -151,44 +164,48 @@ $(function () {
     }
   }
 
-  getLocalStream().then(setLocalStream).then(waitForSocketConn).then(function () {
-    socket.on('candidate', function (data) {
-      const pc = getPeerConnectionOrCreate(data.from);
-      const iceCandidate = new RTCIceCandidate(data.candidate);
-      pc.addIceCandidate(iceCandidate);
-    });
+  getLocalStream()
+      .then(setLocalStream)
+      .then(waitForICEConfig)
+      .then(waitForSocketConn)
+      .then(function () {
+        socket.on('candidate', function (data) {
+          const pc = getPeerConnectionOrCreate(data.from);
+          const iceCandidate = new RTCIceCandidate(data.candidate);
+          pc.addIceCandidate(iceCandidate);
+        });
 
-    socket.on('sdp', function (data) {
-      const pc = getPeerConnectionOrCreate(data.from);
-      const remoteDescr = new RTCSessionDescription(data.sdp);
-      setRemoteDescriptionAndCreateAnswer(pc, remoteDescr);
-    });
+        socket.on('sdp', function (data) {
+          const pc = getPeerConnectionOrCreate(data.from);
+          const remoteDescr = new RTCSessionDescription(data.sdp);
+          setRemoteDescriptionAndCreateAnswer(pc, remoteDescr);
+        });
 
-    $('#join-room').click(function () {
-      const room = $('#room').val();
+        $('#join-room').click(function () {
+          const room = $('#room').val();
 
-      if (!room) {
-        return false;
-      }
+          if (!room) {
+            return false;
+          }
 
-      socket.emit('join', room, function (errJoin, remoteSocketIds) {
-        if (errJoin) {
-          console.error('Error joining room:', errJoin);
-          return;
-        }
+          socket.emit('join', room, function (errJoin, remoteSocketIds) {
+            if (errJoin) {
+              console.error('Error joining room:', errJoin);
+              return;
+            }
 
-        console.log('Joined room:', room);
+            console.log('Joined room:', room);
 
-        $(elInputRoomRow).addClass('hide');
-        $(elCurrentRoomRow).find('#current-room').html(room);
-        $(elCurrentRoomRow).removeClass('hide');
+            $(elInputRoomRow).addClass('hide');
+            $(elCurrentRoomRow).find('#current-room').html(room);
+            $(elCurrentRoomRow).removeClass('hide');
 
-        const remoteSocketId = _.head(remoteSocketIds);
+            const remoteSocketId = _.head(remoteSocketIds);
 
-        if (remoteSocketId) {
-          createPeerConnection(remoteSocketId, true);
-        }
+            if (remoteSocketId) {
+              createPeerConnection(remoteSocketId, true);
+            }
+          });
+        });
       });
-    });
-  });
 });
