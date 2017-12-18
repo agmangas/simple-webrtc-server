@@ -241,6 +241,8 @@ $(function () {
         return false;
       }
 
+      $btnJoinRoom.addClass('disabled');
+
       socket.send(JSON.stringify({
         msgType: 'join',
         data: room
