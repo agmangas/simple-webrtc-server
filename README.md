@@ -1,6 +1,6 @@
 # Simple WebRTC server
 
-Simple WebRTC signaling server and web app based on SocketIO.
+Simple WebRTC signaling server and web app based on WebSockets.
 
 Inspired by [oney/react-native-webrtc-server](https://github.com/oney/react-native-webrtc-server).
 

@@ -26,8 +26,12 @@ $(function () {
   const waitForICEConfig = new Promise(function (resolve) {
     $.getJSON('/iceservers')
         .done(function (iceServers) {
-          pcConfig.iceServers = iceServers;
-          console.log('Retrieved ICE servers:', pcConfig.iceServers);
+          if (iceServers.length) {
+            pcConfig.iceServers = iceServers;
+            console.log('Retrieved ICE servers:', pcConfig.iceServers);
+          } else {
+            console.log('Empty ICE servers result (using STUN-only default)');
+          }
         })
         .fail(function () {
           console.log('Error getting ICE servers (using STUN-only default)');
@@ -45,20 +49,60 @@ $(function () {
   const elInputRoomRow = document.getElementById('input-room-row');
   const elCurrentRoomRow = document.getElementById('current-room-row');
 
-  const socket = io();
+  const wsUrl = 'wss://' + location.host;
+  console.log('Connecting to WS server:', wsUrl);
+  const socket = new WebSocket(wsUrl);
 
-  const waitForSocketConn = new Promise(function (resolve, reject) {
-    socket.on('connect', function () {
-      resolve();
-    });
+  socket.onmessage = function (event) {
+    const msg = JSON.parse(event.data);
 
-    socket.on('connect_error', function (err) {
-      reject(err);
-    });
+    console.log('WS message:', msg);
 
-    socket.on('connect_timeout', function (timeout) {
-      reject(timeout);
-    });
+    const handleSdp = function () {
+      const pc = getPeerConnectionOrCreate(msg.from);
+      const remoteDescr = new RTCSessionDescription(msg.data);
+      setRemoteDescriptionAndCreateAnswer(pc, remoteDescr);
+    };
+
+    const handleCandidate = function () {
+      const pc = getPeerConnectionOrCreate(msg.from);
+      const iceCandidate = new RTCIceCandidate(msg.data);
+      pc.addIceCandidate(iceCandidate);
+    };
+
+    const handleJoinAck = function () {
+      if (msg.err) {
+        console.error('Error joining room:', msg.err);
+        return;
+      }
+
+      console.log('Joined room:', msg.data.room);
+
+      $(elInputRoomRow).addClass('hide');
+      $(elCurrentRoomRow).find('#current-room').html(msg.data.room);
+      $(elCurrentRoomRow).removeClass('hide');
+
+      if (msg.data.peerId) {
+        createPeerConnection(msg.data.peerId, true);
+      }
+    };
+
+    if (msg.msgType === 'sdp') {
+      handleSdp();
+    } else if (msg.msgType === 'candidate') {
+      handleCandidate();
+    } else if (msg.msgType === 'join_ack') {
+      handleJoinAck();
+    }
+  };
+
+  const waitForSocketConn = new Promise(function (resolve) {
+    const intervalHandle = setInterval(function () {
+      if (socket.readyState === 1) {
+        clearInterval(intervalHandle);
+        resolve();
+      }
+    }, 200);
   });
 
   var localStream;
@@ -105,7 +149,11 @@ $(function () {
       console.log('createOffer', localDescr);
       pc.setLocalDescription(localDescr, function () {
         console.log('setLocalDescription', pc.localDescription);
-        socket.emit('sdp', { sdp: pc.localDescription });
+        socket.send(JSON.stringify({
+          msgType: 'sdp',
+          to: pc.peerId,
+          data: pc.localDescription
+        }));
       }, logError);
     }, logError);
   }
@@ -117,24 +165,34 @@ $(function () {
           console.log('createAnswer', desc);
           pc.setLocalDescription(desc, function () {
             console.log('setLocalDescription', pc.localDescription);
-            socket.emit('sdp', { sdp: pc.localDescription });
+            socket.send(JSON.stringify({
+              msgType: 'sdp',
+              to: pc.peerId,
+              data: pc.localDescription
+            }));
           }, logError);
         }, logError);
     }, logError);
   }
 
-  function createPeerConnection(socketId, isOffer) {
-    console.log('Creating peer connection for', socketId);
+  function createPeerConnection(peerId, isOffer) {
+    console.log('Creating peer connection for', peerId);
 
     const pc = new RTCPeerConnection(pcConfig);
 
-    pcPeers[socketId] = pc;
+    pc.peerId = peerId;
+
+    pcPeers[peerId] = pc;
 
     pc.onicecandidate = function (event) {
       console.log('onicecandidate', event);
 
       if (event.candidate) {
-        socket.emit('candidate', { candidate: event.candidate });
+        socket.send(JSON.stringify({
+          msgType: 'candidate',
+          to: pc.peerId,
+          data: event.candidate
+        }));
       }
     };
 
@@ -173,20 +231,6 @@ $(function () {
     }
   }
 
-  function listenSocketEvents() {
-    socket.on('candidate', function (data) {
-      const pc = getPeerConnectionOrCreate(data.from);
-      const iceCandidate = new RTCIceCandidate(data.candidate);
-      pc.addIceCandidate(iceCandidate);
-    });
-
-    socket.on('sdp', function (data) {
-      const pc = getPeerConnectionOrCreate(data.from);
-      const remoteDescr = new RTCSessionDescription(data.sdp);
-      setRemoteDescriptionAndCreateAnswer(pc, remoteDescr);
-    });
-  }
-
   function listenJoinRoom() {
     const $btnJoinRoom = $('#join-room');
 
@@ -197,24 +241,10 @@ $(function () {
         return false;
       }
 
-      socket.emit('join', room, function (errJoin, remoteSocketIds) {
-        if (errJoin) {
-          console.error('Error joining room:', errJoin);
-          return;
-        }
-
-        console.log('Joined room:', room);
-
-        $(elInputRoomRow).addClass('hide');
-        $(elCurrentRoomRow).find('#current-room').html(room);
-        $(elCurrentRoomRow).removeClass('hide');
-
-        const remoteSocketId = _.head(remoteSocketIds);
-
-        if (remoteSocketId) {
-          createPeerConnection(remoteSocketId, true);
-        }
-      });
+      socket.send(JSON.stringify({
+        msgType: 'join',
+        data: room
+      }));
     });
 
     $btnJoinRoom.removeClass('disabled');
@@ -224,6 +254,5 @@ $(function () {
       .then(setLocalStream)
       .then(waitForICEConfig)
       .then(waitForSocketConn)
-      .then(listenSocketEvents)
       .then(listenJoinRoom);
 });

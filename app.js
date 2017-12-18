@@ -1,10 +1,12 @@
 const express = require('express');
 const http = require('http');
 const https = require('https');
-const SocketIO = require('socket.io');
+const WebSocket = require('ws');
 const fs = require('fs');
 const Log = require('log');
 const _ = require('lodash');
+const uuidv4 = require('uuid/v4');
+const Ajv = require('ajv');
 
 const log = new Log();
 const app = express();
@@ -24,10 +26,10 @@ if (process.env.DUMMY_HTTPS) {
   server = http.createServer(app);
 }
 
-const io = SocketIO(server);
-
-const defaultPort = 80;
-server.listen(process.env.PORT || defaultPort);
+const wsServer = new WebSocket.Server({
+  server: server,
+  clientTracking: true
+});
 
 app.use(express.static('public'));
 
@@ -41,7 +43,7 @@ function requestXirsysIceServers() {
     const passwd = process.env.XIRSYS_PASSWD;
 
     if (!user || !passwd) {
-      reject(new Error('Undefined credentials'));
+      resolve([]);
       return;
     }
 
@@ -116,78 +118,171 @@ app.use(function (err, req, res, next) {
   res.json({ error: _.toString(err) });
 });
 
+const rooms = {};
+
+const msgTypeCandidate = 'candidate';
+const msgTypeSdp = 'sdp';
+const msgTypeJoin = 'join';
+const msgTypeJoinAck = 'join_ack';
+
 /**
- * Returns all sockets connected to the given room.
- * @param room
- * @return {Array}
+ * Parses and validates a WS JSON message.
+ * @param rawMsg
+ * @return {Object|undefined}
  */
-function getRoomSockets(room) {
-  return _.filter(_.values(io.sockets.connected), function (socket) {
-    return _.includes(socket.rooms, room);
+function parseMessage(rawMsg) {
+  var parsed;
+
+  try {
+    parsed = JSON.parse(rawMsg);
+  } catch (err) {
+    return;
+  }
+
+  const ajv = new Ajv();
+
+  const validateMessage = ajv.compile({
+    type: 'object',
+    properties: {
+      msgType: {
+        type: 'string',
+        enum: [
+          msgTypeCandidate,
+          msgTypeSdp,
+          msgTypeJoin,
+          msgTypeJoinAck
+        ]
+      },
+      to: { type: 'string' },
+      from: { type: 'string' },
+      err: { type: 'string' },
+      data: {}
+    },
+    required: ['msgType']
+  });
+
+  if (!validateMessage(parsed)) {
+    return;
+  }
+
+  return parsed;
+}
+
+/**
+ * Returns the WS client that matches the given ID.
+ * @param id
+ * @return {WebSocket}
+ */
+function getWSClient(id) {
+  return _.find(Array.from(wsServer.clients), function (ws) {
+    return ws.id === id;
   });
 }
 
 /**
- * Returns an array of socket IDs that are connected to the given room.
- * @param room
- * @return {Array}
+ * Iterates over the room connections object removing
+ * all WS clients that have been disconnected.
  */
-function getRoomSocketIds(room) {
-  return _.map(getRoomSockets(room), function (socket) {
-    return socket.id;
-  });
-}
-
-/**
- * Returns true if the given room is full.
- * @param room
- * @return {boolean}
- */
-function isRoomFull(room) {
-  return getRoomSockets(room).length >= 2;
-}
-
-const ERR_ROOM_FULL = 'room_full';
-
-io.on('connection', function (socket) {
-  log.debug('Connection: %s', socket.id);
-
-  socket.on('disconnect', function () {
-    log.debug('Disconnect: %s', socket.id);
-
-    _.each(_.keys(socket.rooms), function (room) {
-      io.to(room).emit('leave', socket.id);
+function cleanRooms() {
+  _.each(rooms, function (ids, name) {
+    _.each(ids, function (id) {
+      if (!getWSClient(id)) {
+        log.debug('Cleaning WS client %s from room: %s', id, name);
+        _.pull(rooms[name], id);
+      }
     });
   });
+}
 
-  socket.on('join', function (room, callback) {
-    if (isRoomFull(room)) {
-      log.info('Socket %s attempted to join full room %s', socket.id, room);
-      callback && callback(ERR_ROOM_FULL);
+/**
+ * Joins the room with the given name and returns the ID of the
+ * peer WS client that is already present if there is one.
+ * @param name
+ * @param id
+ * @return {*}
+ */
+function joinRoom(name, id) {
+  cleanRooms();
+
+  name = _.toString(name);
+
+  if (!name) {
+    throw new Error('Invalid room name: ' + name);
+  }
+
+  rooms[name] = rooms[name] || [];
+
+  if (rooms[name].length >= 2) {
+    throw new Error('This room is full: ' + name);
+  }
+
+  const peerId = _.head(rooms[name]);
+  rooms[name].push(id);
+
+  return peerId;
+}
+
+wsServer.on('error', function (err) {
+  log.error('Server error: %s', err);
+});
+
+wsServer.on('connection', function (ws, req) {
+  ws.id = uuidv4();
+
+  log.debug('Connection: %s', ws.id);
+
+  ws.on('message', function (rawMsg) {
+    const message = parseMessage(rawMsg);
+
+    if (!message) {
+      log.debug('Invalid message: %s', message);
       return;
     }
 
-    log.debug('Socket %s joined room %s', socket.id, room);
+    const handleJoin = function () {
+      try {
+        log.debug('Client %s joing room: %s', ws.id, message.data);
 
-    const roomSockets = getRoomSocketIds(room);
-    callback && callback(null, roomSockets);
+        const peerId = joinRoom(message.data, ws.id);
 
-    socket.join(room);
-  });
+        ws.send(JSON.stringify({
+          msgType: msgTypeJoinAck,
+          data: {
+            peerId: peerId,
+            room: message.data
+          }
+        }));
+      } catch (err) {
+        log.debug('Error joining room: %s', err);
 
-  socket.on('candidate', function (data) {
-    _.assign(data, { from: socket.id });
+        ws.send(JSON.stringify({
+          msgType: msgTypeJoinAck,
+          err: _.toString(err)
+        }));
+      }
+    };
 
-    _.each(socket.rooms, function (room) {
-      socket.broadcast.to(room).emit('candidate', data);
-    });
-  });
+    const forwardMessage = function () {
+      const wsTo = getWSClient(message.to);
 
-  socket.on('sdp', function (data) {
-    _.assign(data, { from: socket.id });
+      if (!wsTo) {
+        log.warning('WS destination client not found: %s', message.to);
+        return;
+      }
 
-    _.each(socket.rooms, function (room) {
-      socket.broadcast.to(room).emit('sdp', data);
-    });
+      wsTo.send(JSON.stringify({
+        from: ws.id,
+        msgType: message.msgType,
+        data: message.data
+      }));
+    };
+
+    if (message.msgType === msgTypeJoin) {
+      handleJoin();
+    } else {
+      forwardMessage();
+    }
   });
 });
+
+server.listen(process.env.PORT || 80);
