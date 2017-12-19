@@ -26,8 +26,12 @@ $(function () {
   const waitForICEConfig = new Promise(function (resolve) {
     $.getJSON('/iceservers')
         .done(function (iceServers) {
-          pcConfig.iceServers = iceServers;
-          console.log('Retrieved ICE servers:', pcConfig.iceServers);
+          if (iceServers && iceServers.length) {
+            pcConfig.iceServers = iceServers;
+            console.log('Retrieved ICE servers:', pcConfig.iceServers);
+          } else {
+            console.log('Empty ICE servers configuration (using STUN-only default)');
+          }
         })
         .fail(function () {
           console.log('Error getting ICE servers (using STUN-only default)');
@@ -100,41 +104,50 @@ $(function () {
     elSelfView.muted = true;
   }
 
-  function createOfferAndSetLocalDescription(pc) {
+  function createOfferAndSetLocalDescription(pc, peerId) {
     pc.createOffer(function (localDescr) {
       console.log('createOffer', localDescr);
       pc.setLocalDescription(localDescr, function () {
         console.log('setLocalDescription', pc.localDescription);
-        socket.emit('sdp', { sdp: pc.localDescription });
+        socket.emit('sdp', {
+          to: peerId,
+          sdp: pc.localDescription
+        });
       }, logError);
     }, logError);
   }
 
-  function setRemoteDescriptionAndCreateAnswer(pc, remoteDescr) {
+  function setRemoteDescriptionAndCreateAnswer(pc, remoteDescr, peerId) {
     pc.setRemoteDescription(remoteDescr, function () {
       if (pc.remoteDescription.type === 'offer')
         pc.createAnswer(function (desc) {
           console.log('createAnswer', desc);
           pc.setLocalDescription(desc, function () {
             console.log('setLocalDescription', pc.localDescription);
-            socket.emit('sdp', { sdp: pc.localDescription });
+            socket.emit('sdp', {
+              to: peerId,
+              sdp: pc.localDescription
+            });
           }, logError);
         }, logError);
     }, logError);
   }
 
-  function createPeerConnection(socketId, isOffer) {
-    console.log('Creating peer connection for', socketId);
+  function createPeerConnection(peerSocketId, isOffer) {
+    console.log('Creating peer connection for', peerSocketId);
 
     const pc = new RTCPeerConnection(pcConfig);
 
-    pcPeers[socketId] = pc;
+    pcPeers[peerSocketId] = pc;
 
     pc.onicecandidate = function (event) {
       console.log('onicecandidate', event);
 
       if (event.candidate) {
-        socket.emit('candidate', { candidate: event.candidate });
+        socket.emit('candidate', {
+          to: peerSocketId,
+          candidate: event.candidate
+        });
       }
     };
 
@@ -142,7 +155,7 @@ $(function () {
       console.log('onnegotiationneeded');
 
       if (isOffer) {
-        createOfferAndSetLocalDescription(pc);
+        createOfferAndSetLocalDescription(pc, peerSocketId);
       }
     };
 
@@ -175,15 +188,17 @@ $(function () {
 
   function listenSocketEvents() {
     socket.on('candidate', function (data) {
+      console.log('Message (candidate):', data);
       const pc = getPeerConnectionOrCreate(data.from);
       const iceCandidate = new RTCIceCandidate(data.candidate);
       pc.addIceCandidate(iceCandidate);
     });
 
     socket.on('sdp', function (data) {
+      console.log('Message (sdp):', data);
       const pc = getPeerConnectionOrCreate(data.from);
       const remoteDescr = new RTCSessionDescription(data.sdp);
-      setRemoteDescriptionAndCreateAnswer(pc, remoteDescr);
+      setRemoteDescriptionAndCreateAnswer(pc, remoteDescr, data.from);
     });
   }
 
